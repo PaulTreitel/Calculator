@@ -14,7 +14,7 @@ fn main() {
         println!("Tokens are not a valid expression");
         return;
     }
-    let syntax_tree = syntax_tree::Expr::from_tokens(tokens);
+    let syntax_tree = syntax_tree::ExprTree::from_tokens(&tokens);
     if let Ok(val) = syntax_tree.evaluate() {
         println!("{}", val);
     } else {
