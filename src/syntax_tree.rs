@@ -1,8 +1,7 @@
 use std::fmt::Display;
+use super::tokenizer::Token;
 
-use super::tokenizer;
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub enum Value {
     Int(i64),
     Float(f64),
@@ -89,7 +88,7 @@ impl std::ops::Div for Value {
     fn div(self, rhs: Self) -> Self::Output {
         match (self, rhs) {
             (Value::Int(left), Value::Int(right)) => {
-                Value::Int(left / right)
+                Value::Float(left as f64 / right as f64)
             },
             (Value::Int(left), Value::Float(right)) => {
                 Value::Float(left as f64 / right)
@@ -148,10 +147,9 @@ impl Value {
 
 
 impl ExprTree {
-    pub fn from_tokens(tokens: &Vec<tokenizer::Token>) -> ExprTree {
+    pub fn from_tokens(tokens: &Vec<Token>) -> ExprTree {
         let mut expr_vec = Self::direct_token_convert(&tokens);
         Self::tree_from_exprs(&mut expr_vec)
-        // todo!("Construct Syntax Tree from Tokens");
     }
 
     fn tree_from_exprs(exprs: &mut Vec<ExprTree>) -> ExprTree {
@@ -162,11 +160,11 @@ impl ExprTree {
         Self::from_vec_mul_div(exprs);
         Self::from_vec_add_sub(exprs);
 
-        ExprTree::CloseParen
+        todo!("Expression the Tree")
     }
 
     fn from_vec_parens(exprs: &mut Vec<ExprTree>) -> () {
-        let mut remove_idxs = Vec::new();
+        let mut remove_idxs: Vec<usize> = Vec::new();
         let mut changes = Vec::new();
         for idx in 0..exprs.len() {
             let expr = exprs.get(idx).unwrap();
@@ -181,20 +179,10 @@ impl ExprTree {
             let subexpr_tree = Self::tree_from_exprs(&mut paren_subexpr);
             changes.push((idx, ExprTree::Parens(Some(Box::new(subexpr_tree)))));
             // keep `expr` but delete the closing parenthesis
-            remove_idxs.push((idx + 1, end_paren_idx + 1));
+            let rem: Vec<usize> = (idx + 1..end_paren_idx + 1).collect();
+            remove_idxs.extend(rem);
         }
-
-        while !changes.is_empty() {
-            let (idx, val) = changes.pop().unwrap();
-            *exprs.get_mut(idx).unwrap() = val;
-        }
-
-        while !remove_idxs.is_empty() {
-            let (start, end) = remove_idxs.pop().unwrap();
-            for i in (start..end).rev() {
-                exprs.remove(i);
-            }
-        }
+        Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
     fn get_closing_paren_idx(exprs: &Vec<ExprTree>, idx: usize) -> usize {
@@ -216,43 +204,121 @@ impl ExprTree {
     }
 
     fn from_vec_exp(exprs: &mut Vec<ExprTree>) -> () {
-        todo!("Expressionize Exponents")
+        let mut remove_idxs = Vec::new();
+        let mut changes = Vec::new();
+
+        for idx in 1..exprs.len() - 1 {
+            let expr = exprs.get(idx).unwrap();
+            let left = exprs.get(idx - 1).unwrap();
+            let right = exprs.get(idx + 1).unwrap();
+            match expr {
+                ExprTree::Exp(_,_) => {
+                    remove_idxs.extend([idx - 1, idx + 1].iter());
+                    changes.push((idx, ExprTree::Exp(
+                        Some(Box::new(left.clone())),
+                        Some(Box::new(right.clone())))));
+                },
+                _ => (),
+            }
+        }
+        Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
     fn from_vec_mul_div(exprs: &mut Vec<ExprTree>) -> () {
-        todo!("Expressionize Multiplication and Division")
+        let mut remove_idxs = Vec::new();
+        let mut changes = Vec::new();
+
+        for idx in 1..exprs.len() - 1 {
+            let expr = exprs.get(idx).unwrap();
+            let left = exprs.get(idx - 1).unwrap();
+            let right = exprs.get(idx + 1).unwrap();
+            match expr {
+                ExprTree::Mul(_,_) => {
+                    remove_idxs.extend([idx - 1, idx + 1].iter());
+                    changes.push((idx, ExprTree::Mul(
+                        Some(Box::new(left.clone())),
+                        Some(Box::new(right.clone())))));
+                },
+                ExprTree::Div(_,_) => {
+                    remove_idxs.extend([idx - 1, idx + 1].iter());
+                    changes.push((idx, ExprTree::Div(
+                        Some(Box::new(left.clone())),
+                        Some(Box::new(right.clone())))));
+                },
+                _ => (),
+            }
+        }
+        Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
     fn from_vec_add_sub(exprs: &mut Vec<ExprTree>) -> () {
-        todo!("Expressionize Addition and Subtraction")
+        let mut remove_idxs = Vec::new();
+        let mut changes = Vec::new();
+
+        for idx in 1..exprs.len() - 1 {
+            let expr = exprs.get(idx).unwrap();
+            let left = exprs.get(idx - 1).unwrap();
+            let right = exprs.get(idx + 1).unwrap();
+            match expr {
+                ExprTree::Add(_,_) => {
+                    remove_idxs.extend([idx - 1, idx + 1].iter());
+                    changes.push((idx, ExprTree::Add(
+                        Some(Box::new(left.clone())),
+                        Some(Box::new(right.clone())))));
+                },
+                ExprTree::Div(_,_) => {
+                    remove_idxs.extend([idx - 1, idx + 1].iter());
+                    changes.push((idx, ExprTree::Add(
+                        Some(Box::new(left.clone())),
+                        Some(Box::new(right.clone())))));
+                },
+                _ => (),
+            }
+        }
+        Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
-    fn direct_token_convert(tokens: &Vec<tokenizer::Token>) -> Vec<ExprTree> {
+    fn update_expr_vec(
+        exprs: &mut Vec<ExprTree>, 
+        changes: &mut Vec<(usize, ExprTree)>,
+        remove_idxs: &mut Vec<usize>
+    ) -> () {
+        while !changes.is_empty() {
+            let (idx, val) = changes.pop().unwrap();
+            *exprs.get_mut(idx).unwrap() = val;
+        }
+        
+        while !remove_idxs.is_empty() {
+            exprs.remove(remove_idxs.pop().unwrap());
+        }
+    }
+
+    fn direct_token_convert(tokens: &Vec<Token>) -> Vec<ExprTree> {
         let mut exprs = Vec::new();
         for token in tokens {
             match token {
-                tokenizer::Token::Number(x) => {
+                Token::Number(x) => {
                     exprs.push(ExprTree::Number(Value::from_str(x)));
                 },
-                tokenizer::Token::OpenParen(_) => {
+                Token::OpenParen(_) => {
                     exprs.push(ExprTree::Parens(None));
                 },
-                tokenizer::Token::CloseParen(_) => {
+                Token::CloseParen(_) => {
                     exprs.push(ExprTree::CloseParen);
                 },
-                tokenizer::Token::Add => {
+                Token::Add => {
                     exprs.push(ExprTree::Add(None, None));
                 },
-                tokenizer::Token::Sub => {
+                Token::Sub => {
                     exprs.push(ExprTree::Sub(None, None));
                 },
-                tokenizer::Token::Mul => {
+                Token::Mul => {
                     exprs.push(ExprTree::Mul(None, None));
                 },
-                tokenizer::Token::Div => {
+                Token::Div => {
                     exprs.push(ExprTree::Div(None, None));
                 },
-                tokenizer::Token::Exp => {
+                Token::Exp => {
                     exprs.push(ExprTree::Exp(None, None));
                 },
             }
@@ -329,5 +395,39 @@ impl ExprTree {
         } else {
             Err(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn value_arithmetic() {
+        let val1 = Value::Int(23);
+        let val2 = Value::Int(4);
+        let val3 = Value::Float(0.5);
+        let val4 = Value::Float(2.2);
+
+        assert_eq!(Value::Int(46), val1 + val1);
+        assert_eq!(Value::Int(-19), val2 - val1);
+        assert_eq!(Value::Int(529), val1 * val1);
+        assert_eq!(Value::Float(1.0), val1 / val1);
+        assert_eq!(Value::Float(5.75), val1 / val2);
+        assert_eq!(Value::Int(279841), val1.exp(val2));
+
+        assert_eq!(Value::Float(23.5), val1 + val3);
+        assert_eq!(Value::Float(20.8), val1 - val4);
+        assert_eq!(Value::Float(11.5), val1 * val3);
+        assert_eq!(Value::Float(46.0), val1 / val3);
+        assert_eq!(Value::Float(2.0), val2.exp(val3));
+        assert_eq!(Value::Float(0.0625), val3.exp(val2));
+
+        assert_eq!(Value::Float(2.7), val3 + val4);
+        // chosen so as to avoid floating-point inequality problems
+        assert_eq!(Value::Float(-1.1), Value::Float(1.1) - val4);
+        assert_eq!(Value::Float(1.1), val3 * val4);
+        assert_eq!(Value::Float(4.4), val4 / val3);
+        assert_eq!(Value::Float(0.25), val3.exp(Value::Float(2.0)));
     }
 }
