@@ -136,7 +136,7 @@ impl Value {
     }
 
     fn from_str(s: &str) -> Value {
-        if s.contains("\\.") {
+        if s.contains(".") {
             Value::Float(s.parse::<f64>().ok().unwrap())
         } else {
             Value::Int(s.parse::<i64>().ok().unwrap())
@@ -144,23 +144,25 @@ impl Value {
     }
 }
 
-
-
 impl ExprTree {
     pub fn from_tokens(tokens: &Vec<Token>) -> ExprTree {
-        let mut expr_vec = Self::direct_token_convert(&tokens);
-        Self::tree_from_exprs(&mut expr_vec)
+        let expr_vec = Self::direct_token_convert(&tokens);
+        Self::tree_from_exprs(expr_vec)
     }
 
-    fn tree_from_exprs(exprs: &mut Vec<ExprTree>) -> ExprTree {
+    fn tree_from_exprs(mut exprs: Vec<ExprTree>) -> ExprTree {
         // replaces open and closing parens with parenthesis trees
         // then follow order of operations
-        Self::from_vec_parens(exprs);
-        Self::from_vec_exp(exprs);
-        Self::from_vec_mul_div(exprs);
-        Self::from_vec_add_sub(exprs);
+        Self::from_vec_parens(&mut exprs);
+        Self::from_vec_exp(&mut exprs);
+        Self::from_vec_mul_div(&mut exprs);
+        Self::from_vec_add_sub(&mut exprs);
 
-        todo!("Expression the Tree")
+        if exprs.len() == 1 {
+            exprs.pop().unwrap()
+        } else {
+            panic!("expression vector not 1 tree: {:?}", exprs);
+        }
     }
 
     fn from_vec_parens(exprs: &mut Vec<ExprTree>) -> () {
@@ -175,8 +177,8 @@ impl ExprTree {
                 },
             }
             let end_paren_idx = Self::get_closing_paren_idx(exprs, idx);
-            let mut paren_subexpr = exprs[idx+1..end_paren_idx].as_mut().to_vec();
-            let subexpr_tree = Self::tree_from_exprs(&mut paren_subexpr);
+            let paren_subexpr = exprs[idx+1..end_paren_idx].as_mut().to_vec();
+            let subexpr_tree = Self::tree_from_exprs(paren_subexpr);
             changes.push((idx, ExprTree::Parens(Some(Box::new(subexpr_tree)))));
             // keep `expr` but delete the closing parenthesis
             let rem: Vec<usize> = (idx + 1..end_paren_idx + 1).collect();
@@ -429,5 +431,20 @@ mod tests {
         assert_eq!(Value::Float(1.1), val3 * val4);
         assert_eq!(Value::Float(4.4), val4 / val3);
         assert_eq!(Value::Float(0.25), val3.exp(Value::Float(2.0)));
+    }
+
+    #[test]
+    fn value_from_str() {
+        assert_eq!(Value::Int(33), Value::from_str("33"));
+        assert_eq!(Value::Float(33.0), Value::from_str("33."));
+        assert_eq!(Value::Float(33.0), Value::from_str("33.0"));
+        assert_eq!(Value::Float(0.4), Value::from_str("0.4"));
+        assert_eq!(Value::Float(0.4), Value::from_str(".4"));
+        assert_eq!(Value::Float(0.4), Value::from_str(".40"));
+    }
+
+    #[test]
+    fn convert_tokens() {
+        todo!("write test")
     }
 }

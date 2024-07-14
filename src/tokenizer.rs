@@ -64,7 +64,6 @@ pub fn is_valid_expr(tokens: &Vec<Token>) -> bool {
     if has_ops_without_operands(tokens) {
         return false;
     }
-    // todo!("Validate the Input!");
     true
 }
 
@@ -80,14 +79,23 @@ fn has_unmatched_parens(tokens: &Vec<Token>) -> bool {
                 if open.is_none() {
                     return true;
                 }
-                if open.unwrap().ne(close) {
+                if !open_close_paren_match(open.unwrap(), close) {
                     return true;
                 }
             },
             _ => (),
         }
     }
-    false
+    !open_parens.is_empty()
+}
+
+fn open_close_paren_match(open: &str, close: &str) -> bool {
+    match open {
+        "(" => close.eq(")"),
+        "[" => close.eq("]"),
+        "{" => close.eq("}"),
+        _ => false
+    }
 }
 
 fn has_empty_parens(tokens: &Vec<Token>) -> bool {
@@ -123,6 +131,14 @@ fn has_start_end_ops(tokens: &Vec<Token>) -> bool {
             Token::OpenParen(_) => {
                 at_start = true;
             },
+            Token::CloseParen(_) => {
+                at_start = false;
+                if let Some(t) = tokens.get(idx - 1) {
+                    if t.is_operator() {
+                        return true;
+                    }
+                }
+            }
             _ => {
                 at_start = false;
             },
@@ -194,5 +210,217 @@ mod tests {
         let input = "3a+2";
         let tokens = tokenize(input);
         assert_eq!(tokens, Err(()));
+    }
+
+    #[test]
+    fn matching_parens() {
+        let val1 = vec![
+            Token::OpenParen("("),
+            Token::OpenParen("["),
+            Token::OpenParen("{"),
+            Token::CloseParen("}"),
+            Token::CloseParen("]"),
+            Token::CloseParen(")"),
+        ];
+        assert!(!has_unmatched_parens(&val1));
+    }
+
+    #[test]
+    fn unmatched_parens() {
+        let val1 = vec![
+            Token::OpenParen("("),
+            Token::OpenParen("["),
+            Token::CloseParen(")"),
+            Token::CloseParen("]"),
+        ];
+        assert!(has_unmatched_parens(&val1));
+
+        let val2 = vec![Token::OpenParen("(")];
+        assert!(has_unmatched_parens(&val2));
+
+        let val3 = vec![
+            Token::CloseParen(")"),
+            Token::OpenParen("("),
+        ];
+        assert!(has_unmatched_parens(&val3));
+
+        let val4 = vec![Token::CloseParen(")")];
+        assert!(has_unmatched_parens(&val4));
+    }
+
+    #[test]
+    fn no_start_end_ops() {
+        let val1 = vec![
+            Token::Number("2"),
+            Token::Add,
+            Token::Number("3"),
+        ];
+        assert!(!has_start_end_ops(&val1));
+
+        let val2 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::Number("5"),
+            Token::Add,
+            Token::Number("3"),
+            Token::CloseParen(")"),
+            Token::Div,
+            Token::Number("7"),
+        ];
+        assert!(!has_start_end_ops(&val2));
+    }
+
+    #[test]
+    fn has_start_op() {
+        let val1 = vec![
+            Token::Add,
+            Token::Number("3"),
+        ];
+        assert!(has_start_end_ops(&val1));
+
+        let val2 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::Add,
+            Token::Number("3"),
+            Token::CloseParen(")"),
+        ];
+        assert!(has_start_end_ops(&val2));
+    }
+
+    #[test]
+    fn has_end_op() {
+        let val1 = vec![
+            Token::Number("2"),
+            Token::Add,
+        ];
+        assert!(has_start_end_ops(&val1));
+
+        let val2 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::Number("5"),
+            Token::Add,
+            Token::CloseParen(")"),
+            Token::Div,
+            Token::Number("7"),
+        ];
+        assert!(has_start_end_ops(&val2));
+    }
+
+    #[test]
+    fn no_empty_parens() {
+        let val1 = vec![
+            Token::OpenParen("("),
+            Token::Number("2"),
+            Token::Add,
+            Token::Number("3"),
+            Token::CloseParen(")"),
+        ];
+        assert!(!has_empty_parens(&val1));
+
+        let val2 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::Number("5"),
+            Token::CloseParen(")"),
+        ];
+        assert!(!has_empty_parens(&val2));
+    }
+
+    #[test]
+    fn empty_parens() {
+        let val1 = vec![
+            Token::Number("2"),
+            Token::Add,
+            Token::OpenParen("("),
+            Token::CloseParen(")"),
+        ];
+        assert!(has_empty_parens(&val1));
+
+        let val2 = vec![
+            Token::OpenParen("("),
+            Token::CloseParen(")"),
+        ];
+        assert!(has_empty_parens(&val2));
+
+        let val3 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::CloseParen(")"),
+            Token::Div,
+            Token::Number("7"),
+        ];
+        assert!(has_empty_parens(&val3));
+    }
+
+    #[test]
+    fn no_ops_without_operands() {
+        let val1 = vec![
+            Token::Number("2"),
+            Token::Add,
+            Token::Number("3"),
+        ];
+        assert!(!has_ops_without_operands(&val1));
+
+        let val2 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::Number("5"),
+            Token::Add,
+            Token::Number("3"),
+            Token::CloseParen(")"),
+            Token::Div,
+            Token::Number("7"),
+        ];
+        assert!(!has_ops_without_operands(&val2));
+    }
+
+    #[test]
+    fn ops_without_operands() {
+        let val1 = vec![
+            Token::Number("2"),
+            Token::Add,
+            Token::Add,
+            Token::Number("3"),
+        ];
+        assert!(has_ops_without_operands(&val1));
+
+        let val2 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::Add,
+            Token::Number("3"),
+            Token::CloseParen(")"),
+        ];
+        assert!(has_ops_without_operands(&val2));
+
+        let val3 = vec![
+            Token::Number("2"),
+            Token::Mul,
+            Token::OpenParen("("),
+            Token::Number("5"),
+            Token::Add,
+            Token::CloseParen(")"),
+        ];
+        assert!(has_ops_without_operands(&val3));
+    }
+
+    #[test]
+    #[should_panic]
+    fn ops_without_operands_with_start_end() {
+        let val4 = vec![
+            Token::Add,
+            Token::Add,
+            Token::Add,
+        ];
+        assert!(has_ops_without_operands(&val4));
     }
 }
