@@ -1,4 +1,5 @@
 use std::fmt::Display;
+use std::error::Error;
 use super::tokenizer::Token;
 
 #[derive(Debug, Clone, PartialEq, Copy)]
@@ -17,6 +18,49 @@ pub enum ExprTree {
     Mul(Option<Box<ExprTree>>, Option<Box<ExprTree>>),
     Div(Option<Box<ExprTree>>, Option<Box<ExprTree>>),
     Exp(Option<Box<ExprTree>>, Option<Box<ExprTree>>),
+}
+
+#[derive(Debug, PartialEq)]
+pub enum EvaluationError {
+    EmptyParenthesisError,
+    MissingAddOperand,
+    MissingSubOperand,
+    MissingMulOperand,
+    MissingDivOperand,
+    MissingExpOperand,
+    ExtantCloseParen,
+}
+
+impl Display for EvaluationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EvaluationError::EmptyParenthesisError => {
+                f.write_str("a pair of parentheses contains nothing")
+            },
+            EvaluationError::MissingAddOperand => {
+                f.write_str("an addition operator is missing an operand")
+            },
+            EvaluationError::MissingSubOperand => {
+                f.write_str("a subtraction operator is missing an operand")
+            },
+            EvaluationError::MissingMulOperand => {
+                f.write_str("a multiplication operator is missing an operand")
+            },
+            EvaluationError::MissingDivOperand => {
+                f.write_str("a division operator is missing an operand")
+            },
+            EvaluationError::MissingExpOperand => {
+                f.write_str("an exponentiation operator is missing an operand")
+            },
+            EvaluationError::ExtantCloseParen => {
+                f.write_str("a closing parenthesis exists but shouldn't")
+            },
+        }
+    }
+}
+
+impl Error for EvaluationError {
+
 }
 
 impl std::ops::Add for Value {
@@ -105,14 +149,7 @@ impl std::ops::Div for Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Value::Int(x) => {
-                f.write_str(&x.to_string())
-            },
-            Value::Float(x) => {
-                f.write_str(&x.to_string())
-            },
-        }
+        f.write_str(self.to_string().as_str())
     }
 }
 
@@ -135,11 +172,22 @@ impl Value {
         }
     }
 
-    fn from_str(s: &str) -> Value {
+    fn from_string(s: &str) -> Value {
         if s.contains(".") {
             Value::Float(s.parse::<f64>().ok().unwrap())
         } else {
             Value::Int(s.parse::<i64>().ok().unwrap())
+        }
+    }
+
+    fn to_string(&self) -> String {
+        match self {
+            Value::Float(x) => {
+                x.to_string()
+            }
+            Value::Int(x) => {
+                x.to_string()
+            }
         }
     }
 }
@@ -153,16 +201,11 @@ impl ExprTree {
     fn tree_from_exprs(mut exprs: Vec<ExprTree>) -> ExprTree {
         // replaces open and closing parens with parenthesis trees
         // then follow order of operations
-        println!("ExprTree pre-parens:\n\t{:?}", exprs);
-        Self::from_vec_parens(&mut exprs);
-        println!("ExprTree post-parens:\n\t{:?}", exprs);
-        Self::from_vec_exp(&mut exprs);
-        println!("ExprTree post-exp:\n\t{:?}", exprs);
-        Self::from_vec_mul_div(&mut exprs);
-        println!("ExprTree post-mul_div:\n\t{:?}", exprs);
-        Self::from_vec_add_sub(&mut exprs);
-        println!("ExprTree post-add_sub:\n\t{:?}", exprs);
-
+        Self::parens_tree_from_vec(&mut exprs);
+        Self::exp_tree_from_vec(&mut exprs);
+        Self::mul_div_tree_from_vec(&mut exprs);
+        Self::add_sub_tree_from_vec(&mut exprs);
+        
         if exprs.len() == 1 {
             exprs.pop().unwrap()
         } else {
@@ -170,16 +213,19 @@ impl ExprTree {
         }
     }
 
-    fn from_vec_parens(exprs: &mut Vec<ExprTree>) -> () {
+    fn parens_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
         let mut remove_idxs: Vec<usize> = Vec::new();
         let mut changes = Vec::new();
         for idx in 0..exprs.len() {
             let expr = exprs.get(idx).unwrap();
             match expr {
-                ExprTree::Parens(_) => (),
+                ExprTree::Parens(None) => (),
                 _ => {
                     continue
                 },
+            }
+            if remove_idxs.contains(&idx) {
+                continue;
             }
             let end_paren_idx = Self::get_closing_paren_idx(exprs, idx);
             let paren_subexpr = exprs[idx+1..end_paren_idx].to_vec();
@@ -189,6 +235,10 @@ impl ExprTree {
             let rem: Vec<usize> = (idx + 1..end_paren_idx + 1).collect();
             remove_idxs.extend(rem);
         }
+        let mut changes: Vec<(usize, ExprTree)> = changes.iter()
+            .filter(|x| !remove_idxs.contains(&x.0))
+            .map(|x|x.to_owned())
+            .collect();
         Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
@@ -202,15 +252,17 @@ impl ExprTree {
                 ExprTree::CloseParen => {
                     if open_paren_ct == 0 {
                         return i;
+                    } else {
+                        open_paren_ct -= 1;
                     }
                 }
                 _ => (),
             }
         }
-        panic!("Trying to find a closing parenthesis but there are none!")
+        panic!("No closing parenthesis! open parenthesis at index {}", idx);
     }
 
-    fn from_vec_exp(exprs: &mut Vec<ExprTree>) -> () {
+    fn exp_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
         let mut remove_idxs = Vec::new();
         let mut changes = Vec::new();
 
@@ -245,7 +297,7 @@ impl ExprTree {
         Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
-    fn from_vec_mul_div(exprs: &mut Vec<ExprTree>) -> () {
+    fn mul_div_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
         let mut remove_idxs = Vec::new();
         let mut changes = Vec::new();
 
@@ -300,7 +352,7 @@ impl ExprTree {
         Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
-    fn from_vec_add_sub(exprs: &mut Vec<ExprTree>) -> () {
+    fn add_sub_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
         let mut remove_idxs = Vec::new();
         let mut changes = Vec::new();
 
@@ -375,7 +427,7 @@ impl ExprTree {
         for token in tokens {
             match token {
                 Token::Number(x) => {
-                    exprs.push(ExprTree::Number(Value::from_str(x)));
+                    exprs.push(ExprTree::Number(Value::from_string(x)));
                 },
                 Token::OpenParen(_) => {
                     exprs.push(ExprTree::Parens(None));
@@ -403,74 +455,126 @@ impl ExprTree {
         exprs
     }
 
-    pub fn evaluate(&self) -> Result<Value, ()> {
+    pub fn evaluate(&self) -> Result<Value, EvaluationError> {
         match self {
             ExprTree::Parens(sub_expr) => {
                 if let Some(expr) = sub_expr {
                     expr.evaluate()
                 } else {
-                    Err(())
+                    Err(EvaluationError::EmptyParenthesisError)
                 }
             },
             ExprTree::Number(v) => {
                 Ok(v.clone())
             },
             ExprTree::Add(left, right) => {
-                let left = Self::eval_or_err(left);
-                let right = Self::eval_or_err(right);
-                if let (Ok(left), Ok(right)) = (left, right) {
-                    Ok(left + right)
-                } else {
-                    Err(())
+                if left.is_none() || right.is_none() {
+                    return Err(EvaluationError::MissingAddOperand);
+                }
+                let left = left.clone().unwrap().evaluate();
+                let right = right.clone().unwrap().evaluate();
+                match (left, right) {
+                    (Ok(left), Ok(right)) => {
+                        Ok(left + right)
+                    },
+                    (Ok(_), Err(e)) => {
+                        Err(e)
+                    },
+                    (Err(e), Ok(_)) => {
+                        Err(e)
+                    },
+                    (Err(e1), Err(_)) => {
+                        Err(e1)
+                    },
                 }
             },
             ExprTree::Sub(left, right) => {
-                let left = Self::eval_or_err(left);
-                let right = Self::eval_or_err(right);
-                if let (Ok(left), Ok(right)) = (left, right) {
-                    Ok(left - right)
-                } else {
-                    Err(())
+                if left.is_none() || right.is_none() {
+                    return Err(EvaluationError::MissingSubOperand);
+                }
+                let left = left.clone().unwrap().evaluate();
+                let right = right.clone().unwrap().evaluate();
+                match (left, right) {
+                    (Ok(left), Ok(right)) => {
+                        Ok(left - right)
+                    },
+                    (Ok(_), Err(e)) => {
+                        Err(e)
+                    },
+                    (Err(e), Ok(_)) => {
+                        Err(e)
+                    },
+                    (Err(e1), Err(_)) => {
+                        Err(e1)
+                    },
                 }
             },
             ExprTree::Mul(left, right) => {
-                let left = Self::eval_or_err(left);
-                let right = Self::eval_or_err(right);
-                if let (Ok(left), Ok(right)) = (left, right) {
-                    Ok(left * right)
-                } else {
-                    Err(())
+                if left.is_none() || right.is_none() {
+                    return Err(EvaluationError::MissingMulOperand);
+                }
+                let left = left.clone().unwrap().evaluate();
+                let right = right.clone().unwrap().evaluate();
+                match (left, right) {
+                    (Ok(left), Ok(right)) => {
+                        Ok(left * right)
+                    },
+                    (Ok(_), Err(e)) => {
+                        Err(e)
+                    },
+                    (Err(e), Ok(_)) => {
+                        Err(e)
+                    },
+                    (Err(e1), Err(_)) => {
+                        Err(e1)
+                    },
                 }
             },
             ExprTree::Div(left, right) => {
-                let left = Self::eval_or_err(left);
-                let right = Self::eval_or_err(right);
-                if let (Ok(left), Ok(right)) = (left, right) {
-                    Ok(left / right)
-                } else {
-                    Err(())
+                if left.is_none() || right.is_none() {
+                    return Err(EvaluationError::MissingDivOperand);
+                }
+                let left = left.clone().unwrap().evaluate();
+                let right = right.clone().unwrap().evaluate();
+                match (left, right) {
+                    (Ok(left), Ok(right)) => {
+                        Ok(left / right)
+                    },
+                    (Ok(_), Err(e)) => {
+                        Err(e)
+                    },
+                    (Err(e), Ok(_)) => {
+                        Err(e)
+                    },
+                    (Err(e1), Err(_)) => {
+                        Err(e1)
+                    },
                 }
             },
             ExprTree::Exp(left, right) => {
-                let left = Self::eval_or_err(left);
-                let right = Self::eval_or_err(right);
-                if let (Ok(left), Ok(right)) = (left, right) {
-                    Ok(left.exp(right))
-                } else {
-                    Err(())
+                if left.is_none() || right.is_none() {
+                    return Err(EvaluationError::MissingExpOperand);
+                }
+                let left = left.clone().unwrap().evaluate();
+                let right = right.clone().unwrap().evaluate();
+                match (left, right) {
+                    (Ok(left), Ok(right)) => {
+                        Ok(left.exp(right))
+                    },
+                    (Ok(_), Err(e)) => {
+                        Err(e)
+                    },
+                    (Err(e), Ok(_)) => {
+                        Err(e)
+                    },
+                    (Err(e1), Err(_)) => {
+                        Err(e1)
+                    },
                 }
             },
             ExprTree::CloseParen => {
-                Err(())
+                Err(EvaluationError::ExtantCloseParen)
             },
-        }
-    }
-
-    fn eval_or_err(val: &Option<Box<ExprTree>>) -> Result<Value, ()> {
-        if let Some(val) = val {
-            val.evaluate()
-        } else {
-            Err(())
         }
     }
 }
@@ -528,12 +632,12 @@ mod tests {
 
     #[test]
     fn value_from_str() {
-        assert_eq!(Value::Int(33), Value::from_str("33"));
-        assert_eq!(Value::Float(33.0), Value::from_str("33."));
-        assert_eq!(Value::Float(33.0), Value::from_str("33.0"));
-        assert_eq!(Value::Float(0.4), Value::from_str("0.4"));
-        assert_eq!(Value::Float(0.4), Value::from_str(".4"));
-        assert_eq!(Value::Float(0.4), Value::from_str(".40"));
+        assert_eq!(Value::Int(33), Value::from_string("33"));
+        assert_eq!(Value::Float(33.0), Value::from_string("33."));
+        assert_eq!(Value::Float(33.0), Value::from_string("33.0"));
+        assert_eq!(Value::Float(0.4), Value::from_string("0.4"));
+        assert_eq!(Value::Float(0.4), Value::from_string(".4"));
+        assert_eq!(Value::Float(0.4), Value::from_string(".40"));
     }
 
     #[test]
@@ -588,7 +692,7 @@ mod tests {
     fn combine_add_sub() {
         let mut val1 = get_full_expr_vec();
         let len1 = val1.len();
-        ExprTree::from_vec_add_sub(&mut val1);
+        ExprTree::add_sub_tree_from_vec(&mut val1);
         assert_eq!(val1.len(), len1 - 4);
         assert_eq!(
             val1.get(0).unwrap(),
@@ -610,7 +714,7 @@ mod tests {
     fn combine_mul_div() {
         let mut val1 = get_full_expr_vec();
         let len1 = val1.len();
-        ExprTree::from_vec_mul_div(&mut val1);
+        ExprTree::mul_div_tree_from_vec(&mut val1);
         assert_eq!(val1.len(), len1 - 4);
         assert_eq!(
             val1.get(3).unwrap(),
@@ -632,7 +736,7 @@ mod tests {
     fn combine_exp() {
         let mut val1 = get_full_expr_vec();
         let len1 = val1.len();
-        ExprTree::from_vec_exp(&mut val1);
+        ExprTree::exp_tree_from_vec(&mut val1);
         assert_eq!(val1.len(), len1 - 2);
         assert_eq!(
             val1.get(5).unwrap(),
@@ -677,7 +781,7 @@ mod tests {
             ExprTree::Number(Value::Int(5)),
             ExprTree::CloseParen,
         ];
-        ExprTree::from_vec_parens(&mut val1);
+        ExprTree::parens_tree_from_vec(&mut val1);
         assert_eq!(val1.len(), 3);
         assert_eq!(val1.get(0).unwrap(), &ExprTree::Number(Value::Int(3)));
         assert_eq!(val1.get(1).unwrap(), &ExprTree::Add(None, None));
@@ -698,7 +802,7 @@ mod tests {
             ExprTree::Parens(None),
             ExprTree::CloseParen,
         ];
-        ExprTree::from_vec_parens(&mut val1);
+        ExprTree::parens_tree_from_vec(&mut val1);
     }
 
     #[test]
@@ -721,7 +825,7 @@ mod tests {
             ExprTree::Div(None, None),
             ExprTree::Number(Value::Float(1.5)),
         ];
-        ExprTree::from_vec_parens(&mut val1);
+        ExprTree::parens_tree_from_vec(&mut val1);
         assert_eq!(val1.len(), 7);
         assert_eq!(val1, expected);
     }
@@ -755,5 +859,183 @@ mod tests {
         );
         let tree = ExprTree::tree_from_exprs(val1);
         assert_eq!(tree, expected);
+    }
+
+    #[test]
+    fn full_evaluation() {
+        let val1 = vec![
+            ExprTree::Number(Value::Int(3)),
+            ExprTree::Add(None, None),
+            ExprTree::Parens(None),
+            ExprTree::Number(Value::Int(5)),
+            ExprTree::Mul(None, None),
+            ExprTree::Number(Value::Int(8)),
+            ExprTree::Exp(None, None),
+            ExprTree::Parens(None),
+            ExprTree::Number(Value::Int(1)),
+            ExprTree::Div(None, None),
+            ExprTree::Number(Value::Int(3)),
+            ExprTree::CloseParen,
+            ExprTree::CloseParen,
+            ExprTree::Sub(None, None),
+            ExprTree::Number(Value::Int(6)),
+            ExprTree::Div(None, None),
+            ExprTree::Number(Value::Float(1.5)),
+        ];
+        let tree1 = ExprTree::tree_from_exprs(val1);
+        let result1 = tree1.evaluate();
+        assert!(result1.is_ok());
+        assert_eq!(result1.ok().unwrap(), Value::Float(9.0));
+
+        let val2 = vec![
+            ExprTree::Parens(None),
+            ExprTree::Number(Value::Float(3.5)),
+            ExprTree::Exp(None, None),
+            ExprTree::Number(Value::Int(2)),
+            ExprTree::Sub(None, None),
+            ExprTree::Number(Value::Int(3)),
+            ExprTree::CloseParen,
+            ExprTree::Mul(None, None),
+            ExprTree::Number(Value::Int(5))
+        ];
+        let tree2 = ExprTree::tree_from_exprs(val2);
+        let result2 = tree2.evaluate();
+        assert!(result2.is_ok());
+        assert_eq!(result2.ok().unwrap(), Value::Float(46.25));
+    }
+
+    #[test]
+    fn eval_empty_paren() {
+        let val1 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Mul(
+                Some(Box::new(ExprTree::Number(Value::Float(5.75)))), 
+                Some(Box::new(ExprTree::Parens(None)))
+            )))
+        );
+        let result1 = val1.evaluate();
+        assert_eq!(result1, Err(EvaluationError::EmptyParenthesisError));
+    }
+
+    #[test]
+    fn eval_close_paren() {
+        let val1 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Mul(
+                Some(Box::new(ExprTree::Number(Value::Float(5.75)))), 
+                Some(Box::new(ExprTree::CloseParen))
+            )))
+        );
+        let result1 = val1.evaluate();
+        assert_eq!(result1, Err(EvaluationError::ExtantCloseParen));
+    }
+
+    #[test]
+    fn eval_missing_add_operand() {
+        let val1 = ExprTree::Add(
+            None, 
+            Some(Box::new(ExprTree::Mul(
+                Some(Box::new(ExprTree::Number(Value::Float(5.75)))), 
+                Some(Box::new(ExprTree::Number(Value::Int(10))))
+            )))
+        );
+        let result1 = val1.evaluate();
+        assert_eq!(result1, Err(EvaluationError::MissingAddOperand));
+
+        let val2 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            None
+        );
+        let result2 = val2.evaluate();
+        assert_eq!(result2, Err(EvaluationError::MissingAddOperand));
+    }
+
+    #[test]
+    fn eval_missing_sub_operand() {
+        let val1 = ExprTree::Sub(
+            None, 
+            Some(Box::new(ExprTree::Mul(
+                Some(Box::new(ExprTree::Number(Value::Float(5.75)))), 
+                Some(Box::new(ExprTree::Number(Value::Int(10))))
+            )))
+        );
+        let result1 = val1.evaluate();
+        assert_eq!(result1, Err(EvaluationError::MissingSubOperand));
+
+        let val2 = ExprTree::Sub(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            None
+        );
+        let result2 = val2.evaluate();
+        assert_eq!(result2, Err(EvaluationError::MissingSubOperand));
+    }
+
+    #[test]
+    fn eval_missing_mul_operand() {
+        let val1 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Mul(
+                None, 
+                Some(Box::new(ExprTree::Number(Value::Int(10))))
+            )))
+        );
+        let result1 = val1.evaluate();
+        assert_eq!(result1, Err(EvaluationError::MissingMulOperand));
+
+        let val2 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Mul(
+                Some(Box::new(ExprTree::Number(Value::Float(5.75)))), 
+                None
+            )))
+        );
+        let result2 = val2.evaluate();
+        assert_eq!(result2, Err(EvaluationError::MissingMulOperand));
+    }
+
+    #[test]
+    fn eval_missing_div_operand() {
+        let val1 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Div(
+                None, 
+                Some(Box::new(ExprTree::Number(Value::Int(10))))
+            )))
+        );
+        let result1 = val1.evaluate();
+        assert_eq!(result1, Err(EvaluationError::MissingDivOperand));
+
+        let val2 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Div(
+                Some(Box::new(ExprTree::Number(Value::Float(5.75)))), 
+                None
+            )))
+        );
+        let result2 = val2.evaluate();
+        assert_eq!(result2, Err(EvaluationError::MissingDivOperand));
+    }
+
+    #[test]
+    fn eval_missing_exp_operand() {
+        let val1 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Exp(
+                None, 
+                Some(Box::new(ExprTree::Number(Value::Int(10))))
+            )))
+        );
+        let result1 = val1.evaluate();
+        assert_eq!(result1, Err(EvaluationError::MissingExpOperand));
+
+        let val2 = ExprTree::Add(
+            Some(Box::new(ExprTree::Number(Value::Int(3)))), 
+            Some(Box::new(ExprTree::Exp(
+                Some(Box::new(ExprTree::Number(Value::Float(5.75)))), 
+                None
+            )))
+        );
+        let result2 = val2.evaluate();
+        assert_eq!(result2, Err(EvaluationError::MissingExpOperand));
     }
 }
