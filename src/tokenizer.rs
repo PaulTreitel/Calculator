@@ -1,11 +1,12 @@
 use logos::Logos;
+use std::{error::Error, fmt::Display};
 
 const OPERATORS: [Token<'_>; 5] = [Token::Add, Token::Sub, Token::Mul, Token::Div, Token::Exp];
 
 #[derive(Logos, Debug, PartialEq, Clone)]
 #[logos(skip r"[ \t\n\f]+")]
 pub enum Token<'a> {
-    #[regex("[+-]?(\\d*\\.)?\\d+")]
+    #[regex("(\\d*\\.)?\\d+")]
     Number(&'a str),
 
     #[regex("\\(|\\{|\\[")]
@@ -30,19 +31,77 @@ pub enum Token<'a> {
     Exp,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum TokenValidationError<'a> {
+    UnmatchedParens(usize),
+    EmptyParens(usize),
+    OperatorWithoutOperands(Token<'a>, usize),
+    InvalidToken,
+}
+
 impl<'a> Token<'a> {
     fn is_operator(&self) -> bool {
         OPERATORS.contains(self)
     }
 }
 
-pub fn tokenize(input: &str) -> Result<Vec<Token>, ()> {
+impl Display for Token<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg = match self {
+            Token::Number(s) => s,
+            Token::OpenParen(s) => s,
+            Token::CloseParen(s) => s,
+            Token::Add => "+",
+            Token::Sub => "-",
+            Token::Mul => "*",
+            Token::Div => "/",
+            Token::Exp => "^",
+        };
+        f.write_str(msg)
+    }
+}
+
+impl Display for TokenValidationError<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let msg;
+        match self {
+            TokenValidationError::UnmatchedParens(idx) => {
+                msg = format!(
+                    "there are unmatched or out-of-order parentheses at position {}",
+                    idx + 1
+                );
+            },
+            TokenValidationError::EmptyParens(idx) => {
+                msg = format!(
+                    "there are parentheses at position {} that are empty",
+                    idx + 1
+                );
+            },
+            TokenValidationError::OperatorWithoutOperands(t, idx) => {
+                msg = format!(
+                    "there is a {} at position {} that is missing an operand", 
+                    t, 
+                    idx + 1
+                );
+            },
+            TokenValidationError::InvalidToken => {
+                msg = format!("invalid character");
+            },
+        }
+        f.write_str(msg.as_str())
+    }
+}
+
+impl Error for TokenValidationError<'_> {
+    
+}
+
+pub fn tokenize(input: &str) -> Result<Vec<Token>, TokenValidationError> {
     let lex = Token::lexer(input);
     let mut all: Vec<Result<Token, ()>> = lex.collect();
-    println!("{:?}", all);
     for idx in 0..all.len() {
         if all.get(idx).unwrap().clone().ok().is_none() {
-            return Err(());
+            return Err(TokenValidationError::InvalidToken);
         }
     }
     let all: Vec<Token> = all.iter_mut()
@@ -51,42 +110,48 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, ()> {
     Ok(all)
 }
 
-pub fn is_valid_expr(tokens: &Vec<Token>) -> bool {
-    if has_unmatched_parens(tokens) {
-        return false;
+pub fn is_valid_expr<'a>(tokens: &'a Vec<Token<'a>>) -> Result<(), TokenValidationError<'a>> {
+    if let Some(idx) = has_unmatched_parens(tokens) {
+        return Err(TokenValidationError::UnmatchedParens(idx));
     }
-    if has_empty_parens(tokens) {
-        return false;
+    if let Some(idx) = has_empty_parens(tokens) {
+        return Err(TokenValidationError::EmptyParens(idx));
     }
-    if has_start_end_ops(tokens) {
-        return false;
+    if let Some((t, idx)) = has_start_end_ops(tokens) {
+        return Err(TokenValidationError::OperatorWithoutOperands(t, idx));
     }
-    if has_ops_without_operands(tokens) {
-        return false;
+    if let Some((t, idx)) = has_ops_without_operands(tokens) {
+        return Err(TokenValidationError::OperatorWithoutOperands(t, idx));
     }
-    true
+    Ok(())
 }
 
-fn has_unmatched_parens(tokens: &Vec<Token>) -> bool {
+fn has_unmatched_parens(tokens: &Vec<Token>) -> Option<usize> {
     let mut open_parens = Vec::new();
-    for token in tokens {
+    // for token in tokens {
+    for idx in 0..tokens.len() {
+        let token = tokens.get(idx).unwrap();
         match token {
             Token::OpenParen(open) => {
-                open_parens.push(open);
+                open_parens.push((idx, open));
             },
             Token::CloseParen(close) => {
                 let open = open_parens.pop();
                 if open.is_none() {
-                    return true;
+                    return Some(idx);
                 }
-                if !open_close_paren_match(open.unwrap(), close) {
-                    return true;
+                if !open_close_paren_match(open.unwrap().1, close) {
+                    return Some(idx);
                 }
             },
             _ => (),
         }
     }
-    !open_parens.is_empty()
+    if let Some((idx, _)) = open_parens.get(0) {
+        Some(*idx)
+    } else {
+        None
+    }
 }
 
 fn open_close_paren_match(open: &str, close: &str) -> bool {
@@ -98,7 +163,7 @@ fn open_close_paren_match(open: &str, close: &str) -> bool {
     }
 }
 
-fn has_empty_parens(tokens: &Vec<Token>) -> bool {
+fn has_empty_parens(tokens: &Vec<Token>) -> Option<usize> {
     let mut at_start = false;
     for idx in 0..tokens.len() {
         let token = tokens.get(idx).unwrap();
@@ -108,7 +173,7 @@ fn has_empty_parens(tokens: &Vec<Token>) -> bool {
             },
             Token::CloseParen(_) => {
                 if at_start {
-                    return true;
+                    return Some(idx - 1);
                 }
                 at_start = false;
             }
@@ -117,15 +182,15 @@ fn has_empty_parens(tokens: &Vec<Token>) -> bool {
             },
         }
     }
-    false
+    None
 }
 
-fn has_start_end_ops(tokens: &Vec<Token>) -> bool {
+fn has_start_end_ops<'a>(tokens: &'a Vec<Token<'a>>) -> Option<(Token<'a>, usize)> {
     let mut at_start = true;
     for idx in 0..tokens.len() {
         let token = tokens.get(idx).unwrap();
-        if at_start && token.is_operator() {
-            return true;
+        if at_start && token.is_operator() && *token != Token::Sub {
+            return Some((token.clone(), idx));
         }
         match token {
             Token::OpenParen(_) => {
@@ -135,7 +200,7 @@ fn has_start_end_ops(tokens: &Vec<Token>) -> bool {
                 at_start = false;
                 if let Some(t) = tokens.get(idx - 1) {
                     if t.is_operator() {
-                        return true;
+                        return Some((t.clone(), idx - 1));
                     }
                 }
             }
@@ -145,10 +210,13 @@ fn has_start_end_ops(tokens: &Vec<Token>) -> bool {
         }
     }
     let token = tokens.get(tokens.len() - 1).unwrap();
-    token.is_operator()
+    match token.is_operator() {
+        true => Some((token.clone(), tokens.len() - 1)),
+        false => None
+    }
 }
 
-fn has_ops_without_operands(tokens: &Vec<Token>) -> bool {
+fn has_ops_without_operands<'a>(tokens: &'a Vec<Token<'a>>) -> Option<(Token<'a>, usize)> {
     for idx in 0..tokens.len() {
         let token = tokens.get(idx).unwrap();
         if !token.is_operator() {
@@ -161,18 +229,18 @@ fn has_ops_without_operands(tokens: &Vec<Token>) -> bool {
             Token::CloseParen(_) => (),
             Token::Number(_) => (),
             _ => {
-                return true;
+                return Some((token.clone(), idx));
             },
         }
         match next {
             Token::OpenParen(_) => (),
             Token::Number(_) => (),
             _ => {
-                return true;
+                return Some((token.clone(), idx));
             }
         }
     }
-    false
+    None
 }
 
 #[cfg(test)]
@@ -202,14 +270,14 @@ mod tests {
     fn open_period() {
         let input = "3+.";
         let tokens = tokenize(input);
-        assert_eq!(tokens, Err(()));
+        assert_eq!(tokens, Err(TokenValidationError::InvalidToken));
     }
 
     #[test]
     fn letters() {
         let input = "3a+2";
         let tokens = tokenize(input);
-        assert_eq!(tokens, Err(()));
+        assert_eq!(tokens, Err(TokenValidationError::InvalidToken));
     }
 
     #[test]
@@ -222,7 +290,7 @@ mod tests {
             Token::CloseParen("]"),
             Token::CloseParen(")"),
         ];
-        assert!(!has_unmatched_parens(&val1));
+        assert_eq!(has_unmatched_parens(&val1), None);
     }
 
     #[test]
@@ -233,19 +301,19 @@ mod tests {
             Token::CloseParen(")"),
             Token::CloseParen("]"),
         ];
-        assert!(has_unmatched_parens(&val1));
+        assert_eq!(has_unmatched_parens(&val1), Some(2));
 
         let val2 = vec![Token::OpenParen("(")];
-        assert!(has_unmatched_parens(&val2));
+        assert_eq!(has_unmatched_parens(&val2), Some(0));
 
         let val3 = vec![
             Token::CloseParen(")"),
             Token::OpenParen("("),
         ];
-        assert!(has_unmatched_parens(&val3));
+        assert_eq!(has_unmatched_parens(&val3), Some(0));
 
         let val4 = vec![Token::CloseParen(")")];
-        assert!(has_unmatched_parens(&val4));
+        assert_eq!(has_unmatched_parens(&val4), Some(0));
     }
 
     #[test]
@@ -255,7 +323,7 @@ mod tests {
             Token::Add,
             Token::Number("3"),
         ];
-        assert!(!has_start_end_ops(&val1));
+        assert_eq!(has_start_end_ops(&val1), None);
 
         let val2 = vec![
             Token::Number("2"),
@@ -268,7 +336,7 @@ mod tests {
             Token::Div,
             Token::Number("7"),
         ];
-        assert!(!has_start_end_ops(&val2));
+        assert_eq!(has_start_end_ops(&val2), None);
     }
 
     #[test]
@@ -277,7 +345,7 @@ mod tests {
             Token::Add,
             Token::Number("3"),
         ];
-        assert!(has_start_end_ops(&val1));
+        assert_eq!(has_start_end_ops(&val1), Some((Token::Add, 0)));
 
         let val2 = vec![
             Token::Number("2"),
@@ -287,7 +355,7 @@ mod tests {
             Token::Number("3"),
             Token::CloseParen(")"),
         ];
-        assert!(has_start_end_ops(&val2));
+        assert_eq!(has_start_end_ops(&val2), Some((Token::Add, 3)));
     }
 
     #[test]
@@ -296,7 +364,7 @@ mod tests {
             Token::Number("2"),
             Token::Add,
         ];
-        assert!(has_start_end_ops(&val1));
+        assert_eq!(has_start_end_ops(&val1), Some((Token::Add, 1)));
 
         let val2 = vec![
             Token::Number("2"),
@@ -308,7 +376,7 @@ mod tests {
             Token::Div,
             Token::Number("7"),
         ];
-        assert!(has_start_end_ops(&val2));
+        assert_eq!(has_start_end_ops(&val2), Some((Token::Add, 4)));
     }
 
     #[test]
@@ -320,7 +388,7 @@ mod tests {
             Token::Number("3"),
             Token::CloseParen(")"),
         ];
-        assert!(!has_empty_parens(&val1));
+        assert_eq!(has_empty_parens(&val1), None);
 
         let val2 = vec![
             Token::Number("2"),
@@ -329,7 +397,7 @@ mod tests {
             Token::Number("5"),
             Token::CloseParen(")"),
         ];
-        assert!(!has_empty_parens(&val2));
+        assert_eq!(has_empty_parens(&val2), None);
     }
 
     #[test]
@@ -340,13 +408,13 @@ mod tests {
             Token::OpenParen("("),
             Token::CloseParen(")"),
         ];
-        assert!(has_empty_parens(&val1));
+        assert_eq!(has_empty_parens(&val1), Some(2));
 
         let val2 = vec![
             Token::OpenParen("("),
             Token::CloseParen(")"),
         ];
-        assert!(has_empty_parens(&val2));
+        assert_eq!(has_empty_parens(&val2), Some(0));
 
         let val3 = vec![
             Token::Number("2"),
@@ -356,7 +424,7 @@ mod tests {
             Token::Div,
             Token::Number("7"),
         ];
-        assert!(has_empty_parens(&val3));
+        assert_eq!(has_empty_parens(&val3), Some(2));
     }
 
     #[test]
@@ -366,7 +434,7 @@ mod tests {
             Token::Add,
             Token::Number("3"),
         ];
-        assert!(!has_ops_without_operands(&val1));
+        assert_eq!(has_ops_without_operands(&val1), None);
 
         let val2 = vec![
             Token::Number("2"),
@@ -379,7 +447,7 @@ mod tests {
             Token::Div,
             Token::Number("7"),
         ];
-        assert!(!has_ops_without_operands(&val2));
+        assert_eq!(has_ops_without_operands(&val2), None);
     }
 
     #[test]
@@ -390,7 +458,7 @@ mod tests {
             Token::Add,
             Token::Number("3"),
         ];
-        assert!(has_ops_without_operands(&val1));
+        assert_eq!(has_ops_without_operands(&val1), Some((Token::Add, 1)));
 
         let val2 = vec![
             Token::Number("2"),
@@ -400,7 +468,7 @@ mod tests {
             Token::Number("3"),
             Token::CloseParen(")"),
         ];
-        assert!(has_ops_without_operands(&val2));
+        assert_eq!(has_ops_without_operands(&val2), Some((Token::Add, 3)));
 
         let val3 = vec![
             Token::Number("2"),
@@ -410,7 +478,7 @@ mod tests {
             Token::Add,
             Token::CloseParen(")"),
         ];
-        assert!(has_ops_without_operands(&val3));
+        assert_eq!(has_ops_without_operands(&val3), Some((Token::Add, 4)));
     }
 
     #[test]
@@ -421,6 +489,6 @@ mod tests {
             Token::Add,
             Token::Add,
         ];
-        assert!(has_ops_without_operands(&val4));
+        assert_eq!(has_ops_without_operands(&val4), Some((Token::Add, 0)));
     }
 }

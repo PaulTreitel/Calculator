@@ -149,7 +149,15 @@ impl std::ops::Div for Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.to_string().as_str())
+        let str = match self {
+            Value::Float(x) => {
+                x.to_string()
+            }
+            Value::Int(x) => {
+                x.to_string()
+            }
+        };
+        f.write_str(&str)
     }
 }
 
@@ -177,17 +185,6 @@ impl Value {
             Value::Float(s.parse::<f64>().ok().unwrap())
         } else {
             Value::Int(s.parse::<i64>().ok().unwrap())
-        }
-    }
-
-    fn to_string(&self) -> String {
-        match self {
-            Value::Float(x) => {
-                x.to_string()
-            }
-            Value::Int(x) => {
-                x.to_string()
-            }
         }
     }
 }
