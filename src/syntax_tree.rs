@@ -181,7 +181,7 @@ impl Value {
     }
 
     fn from_string(s: &str) -> Value {
-        if s.contains(".") {
+        if s.contains('.') {
             Value::Float(s.parse::<f64>().ok().unwrap())
         } else {
             Value::Int(s.parse::<i64>().ok().unwrap())
@@ -191,7 +191,7 @@ impl Value {
 
 impl ExprTree {
     pub fn from_tokens(tokens: &Vec<Token>) -> ExprTree {
-        let expr_vec = Self::direct_token_convert(&tokens);
+        let expr_vec = Self::direct_token_convert(tokens);
         Self::tree_from_exprs(expr_vec)
     }
 
@@ -210,7 +210,7 @@ impl ExprTree {
         }
     }
 
-    fn parens_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
+    fn parens_tree_from_vec(exprs: &mut Vec<ExprTree>) {
         let mut remove_idxs: Vec<usize> = Vec::new();
         let mut changes = Vec::new();
         for idx in 0..exprs.len() {
@@ -239,7 +239,7 @@ impl ExprTree {
         Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
-    fn get_closing_paren_idx(exprs: &Vec<ExprTree>, idx: usize) -> usize {
+    fn get_closing_paren_idx(exprs: &[ExprTree], idx: usize) -> usize {
         let mut open_paren_ct = 0;
         for i in idx + 1..exprs.len() {
             match exprs.get(i).unwrap() {
@@ -259,7 +259,7 @@ impl ExprTree {
         panic!("No closing parenthesis! open parenthesis at index {}", idx);
     }
 
-    fn exp_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
+    fn exp_tree_from_vec(exprs: &mut Vec<ExprTree>) {
         let mut remove_idxs = Vec::new();
         let mut changes = Vec::new();
 
@@ -267,34 +267,31 @@ impl ExprTree {
             let expr = exprs.get(idx).unwrap();
             let left = exprs.get(idx - 1).unwrap();
             let right = exprs.get(idx + 1).unwrap();
-            match expr {
-                ExprTree::Exp(_,_) => {
-                    if !remove_idxs.contains(&(idx - 1)) {
-                        remove_idxs.extend([idx - 1, idx + 1].iter());
-                        changes.push((
-                            idx, 
-                            ExprTree::Exp(
-                                Some(Box::new(left.clone())),
-                                Some(Box::new(right.clone())))));
-                    } else {
-                        remove_idxs.extend([idx, idx + 1].iter());
-                        let new_left = changes.pop().unwrap().1;
-                        changes.push((
-                            idx - 2,
-                            ExprTree::Exp(
-                                Some(Box::new(new_left)), 
-                                Some(Box::new(right.clone()))
-                            )
-                        ));
-                    }
-                },
-                _ => (),
+            if let ExprTree::Exp(_, _) = expr {
+                if !remove_idxs.contains(&(idx - 1)) {
+                    remove_idxs.extend([idx - 1, idx + 1].iter());
+                    changes.push((
+                        idx, 
+                        ExprTree::Exp(
+                            Some(Box::new(left.clone())),
+                            Some(Box::new(right.clone())))));
+                } else {
+                    remove_idxs.extend([idx, idx + 1].iter());
+                    let new_left = changes.pop().unwrap().1;
+                    changes.push((
+                        idx - 2,
+                        ExprTree::Exp(
+                            Some(Box::new(new_left)), 
+                            Some(Box::new(right.clone()))
+                        )
+                    ));
+                }
             }
         }
         Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
-    fn mul_div_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
+    fn mul_div_tree_from_vec(exprs: &mut Vec<ExprTree>) {
         let mut remove_idxs = Vec::new();
         let mut changes = Vec::new();
 
@@ -349,7 +346,7 @@ impl ExprTree {
         Self::update_expr_vec(exprs, &mut changes, &mut remove_idxs);
     }
 
-    fn add_sub_tree_from_vec(exprs: &mut Vec<ExprTree>) -> () {
+    fn add_sub_tree_from_vec(exprs: &mut Vec<ExprTree>) {
         let mut remove_idxs = Vec::new();
         let mut changes = Vec::new();
 
@@ -408,14 +405,14 @@ impl ExprTree {
         exprs: &mut Vec<ExprTree>, 
         changes: &mut Vec<(usize, ExprTree)>,
         remove_idxs: &mut Vec<usize>
-    ) -> () {
-        while !changes.is_empty() {
-            let (idx, val) = changes.pop().unwrap();
+    ) {
+        while let Some((idx, val)) = changes.pop() {
+            
             *exprs.get_mut(idx).unwrap() = val;
         }
         
-        while !remove_idxs.is_empty() {
-            exprs.remove(remove_idxs.pop().unwrap());
+        while let Some(element) = remove_idxs.pop() {
+            exprs.remove(element);
         }
     }
 
@@ -462,7 +459,7 @@ impl ExprTree {
                 }
             },
             ExprTree::Number(v) => {
-                Ok(v.clone())
+                Ok(*v)
             },
             ExprTree::Add(left, right) => {
                 if left.is_none() || right.is_none() {
@@ -656,7 +653,7 @@ mod tests {
         assert!(changes.is_empty());
         assert!(remove_idxs.is_empty());
         assert_eq!(val1.len(), len1 - 3);
-        assert_eq!(val1.get(0).unwrap(), out_changes.get(0).unwrap());
+        assert_eq!(val1.first().unwrap(), out_changes.first().unwrap());
         assert_eq!(val1.get(4).unwrap(), out_changes.get(1).unwrap());
         assert!(!val1.contains(&ExprTree::Number(Value::Int(3))));
         assert!(!val1.contains(&ExprTree::Number(Value::Float(2.2))));
@@ -692,7 +689,7 @@ mod tests {
         ExprTree::add_sub_tree_from_vec(&mut val1);
         assert_eq!(val1.len(), len1 - 4);
         assert_eq!(
-            val1.get(0).unwrap(),
+            val1.first().unwrap(),
             &ExprTree::Add(
                 Some(Box::new(ExprTree::Number(Value::Int(3)))),
                 Some(Box::new(ExprTree::Parens(None)))
@@ -780,7 +777,7 @@ mod tests {
         ];
         ExprTree::parens_tree_from_vec(&mut val1);
         assert_eq!(val1.len(), 3);
-        assert_eq!(val1.get(0).unwrap(), &ExprTree::Number(Value::Int(3)));
+        assert_eq!(val1.first().unwrap(), &ExprTree::Number(Value::Int(3)));
         assert_eq!(val1.get(1).unwrap(), &ExprTree::Add(None, None));
         assert_eq!(
             val1.get(2).unwrap(), 

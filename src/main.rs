@@ -18,7 +18,7 @@ fn main() {
         if input.eq_ignore_ascii_case("q") {
             break;
         }
-        println!("");
+        println!();
 
         let tokens = tokenize(input.as_str());
         match &tokens {

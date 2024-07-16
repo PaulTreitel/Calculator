@@ -63,31 +63,30 @@ impl Display for Token<'_> {
 
 impl Display for TokenValidationError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let msg;
-        match self {
+        let msg =match self {
             TokenValidationError::UnmatchedParens(idx) => {
-                msg = format!(
+                format!(
                     "there are unmatched or out-of-order parentheses at position {}",
                     idx + 1
-                );
+                )
             },
             TokenValidationError::EmptyParens(idx) => {
-                msg = format!(
+                format!(
                     "there are parentheses at position {} that are empty",
                     idx + 1
-                );
+                )
             },
             TokenValidationError::OperatorWithoutOperands(t, idx) => {
-                msg = format!(
+                format!(
                     "there is a {} at position {} that is missing an operand", 
                     t, 
                     idx + 1
-                );
+                )
             },
             TokenValidationError::InvalidToken => {
-                msg = format!("invalid character");
+                "invalid character".to_string()
             },
-        }
+        };
         f.write_str(msg.as_str())
     }
 }
@@ -110,7 +109,7 @@ pub fn tokenize(input: &str) -> Result<Vec<Token>, TokenValidationError> {
     Ok(all)
 }
 
-pub fn is_valid_expr<'a>(tokens: &'a Vec<Token<'a>>) -> Result<(), TokenValidationError<'a>> {
+pub fn is_valid_expr<'a>(tokens: &'a [Token<'a>]) -> Result<(), TokenValidationError<'a>> {
     if let Some(idx) = has_unmatched_parens(tokens) {
         return Err(TokenValidationError::UnmatchedParens(idx));
     }
@@ -126,7 +125,7 @@ pub fn is_valid_expr<'a>(tokens: &'a Vec<Token<'a>>) -> Result<(), TokenValidati
     Ok(())
 }
 
-fn has_unmatched_parens(tokens: &Vec<Token>) -> Option<usize> {
+fn has_unmatched_parens(tokens: &[Token]) -> Option<usize> {
     let mut open_parens = Vec::new();
     // for token in tokens {
     for idx in 0..tokens.len() {
@@ -147,7 +146,7 @@ fn has_unmatched_parens(tokens: &Vec<Token>) -> Option<usize> {
             _ => (),
         }
     }
-    if let Some((idx, _)) = open_parens.get(0) {
+    if let Some((idx, _)) = open_parens.first() {
         Some(*idx)
     } else {
         None
@@ -163,7 +162,7 @@ fn open_close_paren_match(open: &str, close: &str) -> bool {
     }
 }
 
-fn has_empty_parens(tokens: &Vec<Token>) -> Option<usize> {
+fn has_empty_parens(tokens: &[Token]) -> Option<usize> {
     let mut at_start = false;
     for idx in 0..tokens.len() {
         let token = tokens.get(idx).unwrap();
@@ -185,7 +184,7 @@ fn has_empty_parens(tokens: &Vec<Token>) -> Option<usize> {
     None
 }
 
-fn has_start_end_ops<'a>(tokens: &'a Vec<Token<'a>>) -> Option<(Token<'a>, usize)> {
+fn has_start_end_ops<'a>(tokens: &'a [Token<'a>]) -> Option<(Token<'a>, usize)> {
     let mut at_start = true;
     for idx in 0..tokens.len() {
         let token = tokens.get(idx).unwrap();
@@ -209,14 +208,14 @@ fn has_start_end_ops<'a>(tokens: &'a Vec<Token<'a>>) -> Option<(Token<'a>, usize
             },
         }
     }
-    let token = tokens.get(tokens.len() - 1).unwrap();
+    let token = tokens.last().unwrap();
     match token.is_operator() {
         true => Some((token.clone(), tokens.len() - 1)),
         false => None
     }
 }
 
-fn has_ops_without_operands<'a>(tokens: &'a Vec<Token<'a>>) -> Option<(Token<'a>, usize)> {
+fn has_ops_without_operands<'a>(tokens: &'a [Token<'a>]) -> Option<(Token<'a>, usize)> {
     for idx in 0..tokens.len() {
         let token = tokens.get(idx).unwrap();
         if !token.is_operator() {
